@@ -8,3 +8,8 @@ services:
     init: true
     ports:
       - "127.0.0.1:8501:8501"   # só a própria máquina; troque por "8501:8501" para abrir na rede local
+    logging:                    # registro limitado a 3 arquivos de 10 MB
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

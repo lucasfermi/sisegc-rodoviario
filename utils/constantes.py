@@ -1,11 +1,15 @@
 """Constantes compartilhadas pela aplicação.
 
-Numeração oficial das trilhas, adotada pela equipe a partir da versão 4:
-Trilha 1 = Valor Crítico, Trilha 2 = Densidade de Kernel (KDE) e Trilha 3 = Empírico
-de Bayes. Documentos anteriores (Manual de 2025, Manual de Utilização) usam a ordem
-antiga, com Bayes como Trilha 2 e KDE como Trilha 3. Para mudar a numeração exibida,
-altere só o dicionário ``TRILHAS``.
+Numeração das trilhas, a mesma do Manual de Identificação de Segmentos Críticos
+Rodoviários (2026): Trilha 1 = Valor Crítico, Trilha 2 = Densidade de Kernel (KDE) e
+Trilha 3 = Empírico de Bayes. Para mudar a numeração exibida, altere só o dicionário
+``TRILHAS``.
 """
+
+# Nome e versão do sistema: os mesmos no app, no relatório PDF e na documentação
+NOME_SISTEMA = "Sistema de Identificação de Segmentos Críticos Rodoviários"
+SIGLA_SISTEMA = "SISegC Rodoviário"
+VERSAO = "4.3.4"
 
 # Pesos da Unidade Padrão de Severidade (Manual, equação 2.1)
 PESOS_UPS_PADRAO = {"sem_vitima": 1, "com_vitima": 4, "com_obito": 28}
@@ -28,8 +32,14 @@ def rotulo_trilha(chave: str) -> str:
     return f"Trilha {t['numero']} — {t['nome']}"
 
 
+# Opções de variável de análise para as Trilhas 2 e 3 (Manual 2026, itens 3.2 e 3.3)
+VARIAVEIS_ANALISE = {
+    "severidade": "Severidade (UPS)",
+    "frequencia": "Frequência (total de sinistros)",
+}
+
 # Coeficiente k da Normal padrão unicaudal (Manual, Tabela 3.1).
-# 97,5% (k = 1,960) foi acrescentado porque é o valor usado pela Trilha de Bayes da v4.
+# 97,5% (k = 1,960) foi acrescentado porque é o valor usado pela Trilha de Bayes.
 NIVEIS_CONFIANCA_K = {
     85.0: 1.036,
     90.0: 1.282,
@@ -41,10 +51,13 @@ NIVEIS_CONFIANCA_K = {
 
 
 def k_por_nivel(nivel_confianca: float) -> float:
-    """Retorna o k da Tabela 3.1 do Manual; outros níveis usam a Normal padrão."""
+    """Retorna o k da Tabela 3.1 do Manual; outros níveis (entre 0 e 100%) usam a Normal padrão."""
     nivel = float(nivel_confianca)
-    if nivel in NIVEIS_CONFIANCA_K:
-        return NIVEIS_CONFIANCA_K[nivel]
+    if not (0.0 < nivel < 100.0):
+        raise ValueError("O nível de confiança deve estar entre 0% e 100%.")
+    chave = round(nivel, 4)
+    if chave in NIVEIS_CONFIANCA_K:
+        return NIVEIS_CONFIANCA_K[chave]
     from scipy.stats import norm
 
-    return float(norm.ppf(nivel / 100.0))
+    return round(float(norm.ppf(nivel / 100.0)), 3)

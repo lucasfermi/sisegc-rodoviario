@@ -85,7 +85,7 @@ def test_sinal_da_correcao_e_exclusao_de_zeros():
 
 
 def test_segmento_curto_sem_sinistros_nunca_e_critico():
-    """Com a correção -0,5/m, o valor crítico de um segmento curto fica negativo; sem sinistros, não é crítico."""
+    """Com a correção -0,5/E, o valor crítico de um segmento curto fica negativo; sem sinistros, não é crítico."""
     ids = ["a", *[f"b{i}" for i in range(18)], "c", "d"]
     d = pd.DataFrame({"segmento_id": ids, "extensao_trecho": [1.0] * 19 + [0.05, 0.05],
                       "sem_vitima": [1] + [0] * 18 + [0, 1], "com_vitima": 0, "com_obito": 0})
@@ -93,3 +93,14 @@ def test_segmento_curto_sem_sinistros_nunca_e_critico():
     assert res.loc["c", "Valor_Critico"] < 0 and not res.loc["c", "Critico"]
     assert res.loc["d", "Critico"]                       # curto, mas com sinistro: segue a regra do Manual
     assert any("valor crítico negativo" in a for a in res.attrs["avisos"])
+
+
+def test_nivel_de_confianca_aberto_e_nota_de_taxa(manual):
+    from utils.constantes import k_por_nivel
+    assert k_por_nivel(95) == 1.645
+    assert k_por_nivel(97.5) == 1.960
+    assert 1.43 < k_por_nivel(92.5) < 1.45
+    res_taxa = aplicar_valor_critico(manual, metodo="taxa_severidade", nivel_confianca=92.5)
+    assert any("Trilha 3" in a for a in res_taxa.attrs["avisos"])
+    res_sem_zeros = aplicar_valor_critico(manual, incluir_sem_sinistros=False)
+    assert not any("item 5.1" in a for a in res_sem_zeros.attrs["avisos"])

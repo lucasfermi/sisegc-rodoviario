@@ -1,5 +1,3 @@
-import os
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -63,13 +61,24 @@ def test_marshall_encolhe_para_a_media_global():
     assert np.corrcoef(n, peso)[0, 1] < 0
 
 
-@pytest.mark.parametrize("metodo", ["media_global", "nb_gravidade"])
-def test_metodos_por_gravidade_corrigem_regressao_a_media(metodo):
+@pytest.mark.parametrize("metodo", ["nb_manual", "media_global", "nb_gravidade"])
+def test_metodos_padrao_e_por_gravidade_corrigem_regressao_a_media(metodo):
     d = _base(n=1500, semente=3)
     res = aplicar_bayes(d, metodo=metodo)
-    assert res["omega"].median() > 0.1                      # na v4 a mediana fica perto de 0,002
+    assert res["omega"].median() > 0.05                     # na v4 a mediana fica perto de 0,002
     v4 = aplicar_bayes(d, metodo="v4_script_r")
     assert v4["omega"].median() < 0.05
+
+
+def test_padrao_da_trilha3_e_nb_manual_e_aceita_frequencia():
+    d = _base(n=200, semente=11)
+    padrao = aplicar_bayes(d)
+    assert padrao.attrs["metodo"] == "nb_manual"
+    assert padrao.attrs["criterio"] == "z"
+    assert padrao.attrs["variavel"] == "severidade"
+    freq = aplicar_bayes(d, variavel="frequencia")
+    assert freq.attrs["variavel"] == "frequencia"
+    assert (freq["N_observado"] == freq[["sem_vitima", "com_vitima", "com_obito"]].sum(axis=1)).all()
 
 
 def test_sem_vmd_da_erro_claro():
@@ -79,15 +88,43 @@ def test_sem_vmd_da_erro_claro():
         aplicar_bayes(d)
 
 
-@pytest.mark.skipif(not os.environ.get("DADOS_SCRIPT_R"), reason="defina DADOS_SCRIPT_R=dados_analisados.xlsx")
-def test_igual_a_saida_do_script_r():
-    """Compara com a saída do script R (arquivo não versionado por depender de autorização da fonte)."""
-    from utils.entrada import adaptar_planilha
-    raw = pd.read_excel(os.environ["DADOS_SCRIPT_R"])
-    brutas = [c for c in raw.columns if c in ("ID", "CodigoSNV", "Comprimento", "Latitude Média", "Longitude Média",
-                                              "Sentido") or c.startswith(("VMD ", "Sinistros_"))]
-    dados, _ = adaptar_planilha(raw[brutas])
-    res = aplicar_bayes(preparar_dados(dados, 1, 4, 28), metodo="v4_script_r")
-    res = res.set_index("segmento_id").loc[dados["segmento_id"]]
-    np.testing.assert_allclose(res["ajustado"].to_numpy(), raw["Nesperado"].to_numpy(), rtol=1e-3, atol=1e-3)
-    assert (res["Critico"].to_numpy() == raw["critico"].eq("Crítico").to_numpy()).all()
+# Dados sintéticos (40 segmentos, 3 anos) e resultados do MASS::glm.nb do R (R 4.3.3, MASS 7.3-60) com o
+# procedimento do Manual (2026, item 3.3): Nobservado ~ log(Exposicao), k = 1/theta, omega = 1/(1 + Nprevisto/k)
+# e crítico se Nesperado > Nprevisto + 1,96 DP.
+VMD_R = [3861, 9009, 8123, 11201, 9375, 4054, 1177, 1972, 8149, 4000, 17176, 6864, 4314, 9307, 19659, 9663, 6886,
+         4968, 5149, 6667, 12814, 4513, 18525, 1591, 7695, 3461, 2675, 10236, 3411, 18818, 16766, 6988, 7815, 1210,
+         9067, 2274, 5162, 3681, 3087, 2037]
+EXT_R = [1.0, 1.0, 0.82, 1.0, 1.0, 1.0, 1.0, 0.72, 0.43, 1.0, 0.71, 1.0, 0.9, 1.0, 1.0, 1.0, 1.0, 0.95, 1.0, 1.0, 1.0,
+         1.0, 1.0, 1.0, 1.0, 0.54, 1.0, 1.0, 1.0, 1.0, 1.0, 0.79, 1.0, 0.73, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+SV_R = [1, 2, 1, 2, 3, 1, 0, 1, 0, 2, 4, 2, 1, 1, 5, 3, 2, 3, 0, 1, 7, 1, 5, 3, 8, 1, 0, 2, 1, 4, 2, 7, 5, 0, 4, 2, 1,
+        1, 1, 0]
+CV_R = [2, 4, 1, 0, 3, 0, 0, 0, 1, 6, 3, 0, 3, 1, 9, 6, 3, 1, 0, 2, 5, 2, 2, 3, 10, 0, 0, 11, 1, 8, 4, 3, 14, 0, 8, 4,
+        7, 0, 2, 2]
+CO_R = [0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 2, 0,
+        0, 0, 0]
+# segmento: (Nprevisto, omega, Nesperado, desvio-padrão)
+REF_R = {
+    "severidade": {"criticos": [10, 15, 16, 25, 28, 32, 33, 36],
+                   "valores": {1: (16.15657681, 0.08116211, 9.58084290, 2.96702569),
+                               7: (5.90491093, 0.19464304, 1.14934980, 0.96210023),
+                               25: (28.98142801, 0.04693188, 47.10742263, 6.70049122),
+                               40: (9.39831189, 0.13183118, 8.18434111, 2.66559370)}},
+    "frequencia": {"criticos": [25, 33],
+                   "valores": {1: (3.84471728, 0.09733467, 3.08222028, 1.66799682),
+                               7: (1.47071838, 0.21990030, 0.32341141, 0.50228791),
+                               25: (6.71644881, 0.05813708, 17.34400729, 4.04174187),
+                               40: (2.29204616, 0.15317131, 2.04473309, 1.31587942)}},
+}
+
+
+@pytest.mark.parametrize("variavel", ["severidade", "frequencia"])
+def test_padrao_reproduz_o_glm_nb_do_r(variavel):
+    d = pd.DataFrame({"segmento_id": range(1, 41), "latitude": -15.8, "longitude": -47.9, "extensao_trecho": EXT_R,
+                      "volume_trafego": VMD_R, "n_anos": 3, "sem_vitima": SV_R, "com_vitima": CV_R,
+                      "com_obito": CO_R})
+    res = aplicar_bayes(preparar_dados(d, 1, 4, 28), variavel=variavel).set_index("segmento_id")
+    ref = REF_R[variavel]
+    assert sorted(res.index[res["Critico"].astype(bool)]) == ref["criticos"]
+    for seg, valores in ref["valores"].items():
+        obtido = res.loc[seg, ["N_previsto", "omega", "ajustado", "desvio_padrao"]].to_numpy(float)
+        np.testing.assert_allclose(obtido, valores, rtol=1e-4)

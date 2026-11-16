@@ -1,0 +1,72 @@
+cff-version: 1.2.0
+message: "Se usar este software, cite-o como abaixo."
+type: software
+title: "SISegC Rodoviário: Sistema de Identificação de Segmentos Críticos Rodoviários"
+abstract: >-
+  Aplicação web que identifica segmentos rodoviários críticos a partir de dados de sinistros de trânsito,
+  com as três trilhas do Manual de Identificação de Segmentos Críticos Rodoviários (2026): Valor Crítico,
+  Densidade de Kernel e Empírico de Bayes. Segmenta a malha automaticamente com dados públicos (SNV do DNIT,
+  sinistros da PRF, VMD do PNCT e vias do OpenStreetMap) ou com uma base de sinistros própria a ser analisada.
+authors:
+  - family-names: "Oliveira"
+    given-names: "Lucas Fermi Pereira de"
+    affiliation: "Universidade de Brasília, Programa de Pós-Graduação em Transportes (PPGT/UnB)"
+license: MIT
+version: "4.3.4"
+date-released: "2026-11-15"
+keywords:
+  - segurança viária
+  - segmentos críticos
+  - sinistros de trânsito
+  - Empírico de Bayes
+  - densidade de kernel
+  - SNV
+references:
+  - type: manual
+    title: "Manual de Identificação de Segmentos Críticos Rodoviários"
+    year: 2026
+    location:
+      name: "Brasília"
+  - type: book
+    title: "Highway Safety Manual"
+    authors:
+      - name: "American Association of State Highway and Transportation Officials (AASHTO)"
+    year: 2010
+    edition: "1"
+    publisher:
+      name: "AASHTO"
+  - type: article
+    title: "Estimating safety by the empirical Bayes method: a tutorial"
+    authors:
+      - family-names: "Hauer"
+        given-names: "Ezra"
+      - family-names: "Harwood"
+        given-names: "Douglas W."
+      - family-names: "Council"
+        given-names: "Forrest M."
+      - family-names: "Griffith"
+        given-names: "Michael S."
+    journal: "Transportation Research Record"
+    issue: "1784"
+    start: 126
+    end: 131
+    year: 2002
+  - type: article
+    title: "Mapping disease and mortality rates using empirical Bayes estimators"
+    authors:
+      - family-names: "Marshall"
+        given-names: "Roger J."
+    journal: "Journal of the Royal Statistical Society: Series C (Applied Statistics)"
+    volume: 40
+    issue: "2"
+    start: 283
+    end: 294
+    year: 1991
+  - type: book
+    title: "Density Estimation for Statistics and Data Analysis"
+    authors:
+      - family-names: "Silverman"
+        given-names: "Bernard W."
+    year: 1986
+    publisher:
+      name: "Chapman and Hall"

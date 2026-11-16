@@ -24,11 +24,14 @@ desktop.ini
 
 # Saídas geradas e dados locais
 saidas/
+comparacao_linguagens/
 *.pdf
 !docs/*.pdf
+!static/manual/*.pdf
 dados_locais/
 
-# Planilhas: o repositório publica só o aplicativo e os exemplos fictícios de data/
+# Planilhas: o repositório publica o aplicativo, os exemplos fictícios de data/ e os dados públicos de
+# dados_publicos/ (em Parquet)
 *.xlsx
 *.xls
 *.csv

@@ -64,3 +64,42 @@ def test_coluna_de_total_nao_vira_obito_e_linha_de_total_sai():
 def test_sem_colunas_de_sinistro_da_erro_claro():
     with pytest.raises(ErroEntrada, match="colunas de sinistros"):
         adaptar_planilha(pd.DataFrame({"ID": [1], "acidentes_leves": [3]}))
+
+
+def test_coluna_n_anos_e_respeitada():
+    df = pd.DataFrame({"segmento_id": ["A", "B"], "sem_vitima": [1, 0], "com_vitima": [0, 2], "com_obito": [0, 0],
+                       "extensao_trecho": [1.0, 1.0], "n_anos": [5, 5]})
+    dados, avisos = adaptar_planilha(df)
+    assert (dados["n_anos"] == 5).all()
+    assert not any("Período" in a for a in avisos)
+
+
+def test_aba_de_instrucoes_na_frente_nao_impede_a_leitura():
+    """Se a aba Instruções vier antes da aba de dados no Excel, o leitor escolhe a aba com as colunas de dados."""
+    import io
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
+        pd.DataFrame({"Coluna": ["ID do segmento"], "Obrigatória?": ["Sim"]}).to_excel(
+            w, sheet_name="Instruções", index=False
+        )
+        pd.DataFrame({
+            "ID do segmento": ["S1", "S2"],
+            "Sinistros sem vítima": [2, 0],
+            "Sinistros com vítima": [1, 1],
+            "Sinistros com óbito": [0, 1],
+            "Extensão (km)": [1.0, 1.2],
+        }).to_excel(w, sheet_name="Dados", index=False)
+    dados, _ = adaptar_planilha(ler_arquivo("invertido.xlsx", buf.getvalue()))
+    assert dados["segmento_id"].tolist() == ["S1", "S2"]
+    assert dados["com_obito"].tolist() == [0, 1]
+
+
+def test_adaptar_planilha_aceita_coluna_gravidade_numerica_ou_texto():
+    df = pd.DataFrame({
+        "ID": ["1", "2", "3"],
+        "Latitude": [-8.05, -8.06, -8.07],
+        "Longitude": [-34.88, -34.89, -34.90],
+        "Gravidade": [1, 4, 28],
+    })
+    dados, _ = adaptar_planilha(df)
+    assert dados[["sem_vitima", "com_vitima", "com_obito"]].to_numpy().tolist() == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]

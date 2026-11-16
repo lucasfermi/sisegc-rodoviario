@@ -2,9 +2,10 @@
 
 Formatos aceitos:
 
-* Modelo do próprio app (uma linha por segmento ou por segmento-ano):
+* Modelo do próprio app (uma linha por segmento ou por segmento-ano), com os nomes claros de
+  ``utils/modelos.py`` ("ID do segmento", "Sinistros sem vítima"...) ou os técnicos:
   ``segmento_id, sem_vitima, com_vitima, com_obito, latitude, longitude,
-  volume_trafego, extensao_trecho, ano``.
+  volume_trafego, extensao_trecho, n_anos`` (ou ``ano``).
 * Planilhas oficiais (DF, MG, PE): ``ID``, ``CodigoSNV``, ``Comprimento``,
   ``Latitude Média``, ``Longitude Média``, ``Sentido``, ``VMD AAAA`` e
   ``Sinistros_SV/CV/CO AAAA``.
@@ -47,7 +48,7 @@ PADROES = {
     "sem_vitima": re.compile(rf"^{_PREFIXO}(?:sv|sem_vitimas?|danos_materiais){_ANO}$"),
     "com_vitima": re.compile(rf"^{_PREFIXO}(?:cv|com_vitimas?|com_feridos?|com_vitimas_feridas){_ANO}$"),
     "com_obito": re.compile(rf"^{_PREFIXO}(?:co|com_obitos?|com_vitimas_fatais|fatais){_ANO}$"),
-    "volume": re.compile(rf"^(?:vmd|vmda|volume|volume_trafego|volume_de_trafego){_ANO}$"),
+    "volume": re.compile(rf"^(?:vmd|vmda|volume|volume_trafego|volume_de_trafego)(?:_veiculos_dia)?{_ANO}$"),
 }
 
 
@@ -65,11 +66,45 @@ def para_numero(serie: pd.Series) -> pd.Series:
     return pd.to_numeric(s, errors="coerce")
 
 
+_ABAS_IGNORAR = {"instrucoes", "como_preencher", "leia_me", "leiame", "metadados", "notas", "dicionario", "resumo"}
+_COLUNAS_RECONHECIDAS = {
+    "segmento_id", "id_segmento", "id_do_segmento", "segmento", "id", "codigosnv", "codigo_snv", "snv",
+    "sem_vitima", "sinistros_sem_vitima", "com_vitima", "sinistros_com_vitima", "com_obito", "sinistros_com_obito",
+    "latitude", "latitude_media", "lat", "longitude", "longitude_media", "lon", "long", "lng",
+    "gravidade", "severidade", "classificacao", "classificacao_acidente", "data_inversa", "data",
+    "extensao_trecho", "extensao", "extensao_km", "comprimento", "comprimento_km",
+    "volume_trafego", "vmd", "vmda", "mortos", "feridos",
+}
+
+
+def _escolher_aba_excel(conteudo: bytes) -> pd.DataFrame:
+    """Identifica automaticamente a aba de dados mesmo se o usuário alterar a ordem das abas (ex.: Instruções antes)."""
+    xl = pd.ExcelFile(io.BytesIO(conteudo))
+    if len(xl.sheet_names) <= 1:
+        return xl.parse(xl.sheet_names[0])
+    melhor_aba = None
+    melhor_pontos = -1
+    for aba in xl.sheet_names:
+        nome_norm = normalizar_nome(aba)
+        if nome_norm in _ABAS_IGNORAR:
+            continue
+        amostra = xl.parse(aba, nrows=5)
+        cols_norm = [normalizar_nome(c) for c in amostra.columns]
+        pontos = sum(
+            c in _COLUNAS_RECONHECIDAS or any(p.match(c) for p in PADROES.values())
+            for c in cols_norm
+        )
+        if pontos > melhor_pontos:
+            melhor_pontos = pontos
+            melhor_aba = aba
+    return xl.parse(melhor_aba if melhor_aba is not None else xl.sheet_names[0])
+
+
 def ler_arquivo(nome: str, conteudo: bytes) -> pd.DataFrame:
     """Lê CSV (separador ',', ';' ou tabulação; UTF-8 ou Latin-1) ou Excel (.xlsx)."""
     ext = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
     if ext in ("xlsx", "xlsm"):
-        return pd.read_excel(io.BytesIO(conteudo))
+        return _escolher_aba_excel(conteudo)
     if ext in ("csv", "txt"):
         texto = None
         for enc in ("utf-8-sig", "latin-1"):
@@ -129,14 +164,33 @@ def adaptar_planilha(df_bruto: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
             out[alvo] = np.nan
             faltando.append(alvo)
     if len(faltando) == len(COLUNAS_SINISTROS):
-        raise ErroEntrada(
-            "Não encontrei colunas de sinistros. Use 'sem_vitima', 'com_vitima' e 'com_obito' "
-            "(modelo do app) ou 'Sinistros_SV/CV/CO AAAA' (planilhas oficiais).")
+        col_grav = _achar(df, "gravidade", "severidade", "classificacao", "classificacao_acidente")
+        if col_grav is not None:
+            s_num = para_numero(df[col_grav])
+            if s_num.notna().any() and s_num.dropna().isin([1, 4, 6, 28]).all():
+                obito = s_num >= 20
+                vitima = (s_num >= 2) & ~obito
+            else:
+                txt = df[col_grav].astype("string").str.lower().fillna("").str.replace("_", " ", regex=False)
+                obito = txt.str.contains("fata|óbito|obito|morte")
+                vitima = ~obito & txt.str.contains("ferid|vítima|vitima") & ~txt.str.contains("sem v")
+            out["com_obito"] = obito.astype(int)
+            out["com_vitima"] = vitima.astype(int)
+            out["sem_vitima"] = (~obito & ~vitima).astype(int)
+            faltando = []
+            eh_pontual_gravidade = True
+        else:
+            raise ErroEntrada(
+                "Não encontrei colunas de sinistros. Use 'sem_vitima', 'com_vitima' e 'com_obito' "
+                "(modelo do app) ou 'Sinistros_SV/CV/CO AAAA' (planilhas oficiais).")
+    else:
+        eh_pontual_gravidade = False
     if faltando:
         avisos.append("Colunas não encontradas e consideradas zero: " + ", ".join(faltando) + ".")
 
     # 2. Identificador
-    col_id = _achar(df, "segmento_id", "id_segmento", "segmento", "id", "codigosnv", "codigo_snv", "snv")
+    col_id = _achar(df, "segmento_id", "id_segmento", "id_do_segmento", "segmento", "id", "codigosnv", "codigo_snv",
+                    "snv")
     if col_id is None:
         ids = pd.Series(np.arange(1, len(df) + 1), index=df.index).astype("string")
         avisos.append("Sem coluna de identificação: os segmentos foram numerados pela ordem das linhas.")
@@ -162,12 +216,16 @@ def adaptar_planilha(df_bruto: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     col_ext = _achar(df, "extensao_trecho", "extensao", "extensao_km", "comprimento", "comprimento_km")
     if col_ext:
         out["extensao_trecho"] = para_numero(df[col_ext])
+    elif eh_pontual_gravidade:
+        out["extensao_trecho"] = np.nan
     else:
         out["extensao_trecho"] = 1.0
         avisos.append("Sem coluna de extensão: todos os segmentos foram considerados com 1 km.")
 
     col_ano = _achar(df, "ano")
     out["ano"] = para_numero(df[col_ano]) if col_ano else np.nan
+    col_n_anos = _achar(df, "n_anos", "numero_de_anos", "anos_de_dados", "anos")
+    out["_n_anos"] = para_numero(df[col_n_anos]) if col_n_anos else np.nan
 
     vol_ano = [(c, a) for c, a in _colunas_por_padrao(df, PADROES["volume"]) if a]
     vol_sem = [c for c, a in _colunas_por_padrao(df, PADROES["volume"]) if not a]
@@ -178,7 +236,8 @@ def adaptar_planilha(df_bruto: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     else:
         out["volume_trafego"] = np.nan
 
-    col_snv = _achar(df, "codigosnv", "codigo_snv", "snv", "rodovia", "br")
+    # a descrição da via (planilha baixada do app) vale mais que o código do SNV (planilhas oficiais)
+    col_snv = _achar(df, "rodovia_ou_via", "rodovia", "codigosnv", "codigo_snv", "snv", "br")
     if col_snv and col_snv != col_id:
         out["rodovia"] = df[col_snv].astype("string").str.strip()
     col_sentido = _achar(df, "sentido")
@@ -234,9 +293,9 @@ def adaptar_planilha(df_bruto: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
         out["n_anos"] = n_anos.reindex(out.index).replace(0, np.nan)
         out = out.reset_index()
     else:
-        out["n_anos"] = np.nan
+        out["n_anos"] = out["_n_anos"]      # coluna n_anos (ex.: planilha exportada pela segmentação)
         if col_ano:
-            out.loc[out["ano"].notna(), "n_anos"] = 1
+            out.loc[out["ano"].notna() & out["n_anos"].isna(), "n_anos"] = 1
 
     if out["n_anos"].isna().any():
         n_padrao = len(anos_detectados) or len(vol_ano) or ANOS_PADRAO

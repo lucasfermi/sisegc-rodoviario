@@ -88,10 +88,9 @@ def test_quartil_superior_e_segmentos_sem_coordenada():
     d = _df()
     d["UPS"] = d.sem_vitima + 4 * d.com_vitima + 28 * d.com_obito
     d.loc[[0, 1], ["latitude", "longitude"]] = np.nan
-    res = aplicar_kernel(d, unidade="segmentos")
-    validos = res["densidade"].dropna()
-    assert res["Critico"].sum() == (validos >= np.percentile(validos, 75)).sum()
-    assert 9 <= res["Critico"].sum() <= 12
+    res = aplicar_kernel(d)
+    assert res["Critico"].sum() > 0
+    assert res.loc[res["Critico"], "nivel_densidade"].eq(4).all()
     assert res.loc[res["segmento_id"].isin(["s0", "s1"]), "Critico"].eq(False).all()
     assert res["indice_densidade"].max() == pytest.approx(100)
     assert any("sem coordenadas" in a for a in res.attrs["avisos"])
@@ -104,24 +103,28 @@ def test_sem_coordenadas_da_erro_claro():
         aplicar_kernel(d)
 
 
-def test_unidade_desconhecida_da_erro():
-    with pytest.raises(ValueError, match="Unidade"):
-        aplicar_kernel(_df(5), unidade="trechos")
-
-
 def test_maioria_sem_sinistros_por_perto():
-    """Quartil sobre os segmentos (v4): com mais de 75% dos segmentos longe de qualquer sinistro, o limite é zero e
-    só a densidade positiva conta. No quartil sobre os sinistros, os segmentos sem sinistro nunca são críticos."""
+    """Mesmo com mais de 75% dos segmentos sem sinistros, só segmentos com sinistros podem ser críticos."""
     d = _df(10)
     d["UPS"] = d.sem_vitima + 4 * d.com_vitima + 28 * d.com_obito + 1
     d["sem_vitima"] += 1
     longe = pd.DataFrame({"segmento_id": [f"z{i}" for i in range(60)], "latitude": -16.5 + 0.02 * np.arange(60),
                           "longitude": -48.5, "sem_vitima": 0, "com_vitima": 0, "com_obito": 0, "UPS": 0})
     tudo = pd.concat([d, longe], ignore_index=True)
-    res = aplicar_kernel(tudo, unidade="segmentos")
-    assert res.attrs["limite"] == 0
-    assert set(res.loc[res["Critico"], "segmento_id"]) == set(d["segmento_id"])
-    assert any("densidade zero" in a for a in res.attrs["avisos"])
     manual = aplicar_kernel(tudo)
+    assert manual.attrs["limite"] > 0
+    assert manual["Critico"].any()
     assert not manual.loc[manual["segmento_id"].str.startswith("z"), "Critico"].any()
     assert any("sem sinistros" in a for a in manual.attrs["avisos"])
+
+
+def test_kernel_por_frequencia_usa_pesos_unitarios():
+    d = _df(30, semente=9)
+    d["UPS"] = d.sem_vitima + 4 * d.com_vitima + 28 * d.com_obito
+    freq = aplicar_kernel(d, variavel="frequencia").set_index("segmento_id")
+    assert freq.attrs["variavel"] == "frequencia"
+    d_unit = d.copy()
+    d_unit["UPS"] = d.sem_vitima + d.com_vitima + d.com_obito
+    d_unit.attrs["pesos_ups"] = {"sem_vitima": 1.0, "com_vitima": 1.0, "com_obito": 1.0}
+    unit = aplicar_kernel(d_unit).set_index("segmento_id").reindex(freq.index)
+    np.testing.assert_allclose(freq["densidade"].dropna(), unit["densidade"].dropna(), rtol=1e-12)

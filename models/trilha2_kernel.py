@@ -7,15 +7,12 @@ como críticos, os do último quartil das densidades atribuídas aos sinistros
 (nível 4 do ``find_decil`` do código, o que vai para o mapa e para a tabela de
 trechos críticos).
 
-Unidade do quartil (``unidade``):
-
-* ``sinistros`` (padrão, Manual): cada sinistro é um registro. Numa planilha de
-  segmentos os sinistros estão no meio do segmento, então o segmento conta no
-  quartil tantas vezes quanto tem sinistros, e a grade e a normalização usam só os
-  sinistros. Segmento sem sinistro não tem registro: fica sem densidade e nunca é
-  crítico. O resultado é igual ao do código R do Manual em todos os segmentos.
-* ``segmentos`` (v4): cada segmento é um ponto, inclusive os sem sinistros, e o
-  quartil é tomado sobre os segmentos: um quarto deles sai crítico por construção.
+Cada sinistro é um registro. Numa planilha de segmentos os sinistros estão no meio do
+segmento, então o segmento conta no quartil tantas vezes quanto tem sinistros, e a grade e
+a normalização usam só os sinistros. Segmento sem sinistro não tem registro: fica sem
+densidade e nunca é crítico. O resultado é igual ao do código R do Manual em todos os
+segmentos. (A v4 tomava o quartil sobre os segmentos, inclusive os vazios, o que punha um
+quarto deles como crítico por construção; a opção saiu do app.)
 
 Diferença de implementação para a v4: em vez de calcular a densidade em todas as
 células da grade (milhões de células em escala estadual) e montar uma matriz
@@ -31,7 +28,6 @@ from scipy.spatial import cKDTree
 from utils.constantes import COLUNAS_SINISTROS
 
 R_TERRA = 6378137.0
-UNIDADES = {"sinistros": "Sinistros (Manual)", "segmentos": "Segmentos (v4)"}
 
 
 def projetar_mercator(lat, lon):
@@ -110,16 +106,13 @@ def _niveis(valores, registros):
     return np.searchsorted(quebras, valores, side="left") + 1
 
 
-def aplicar_kernel(df, bandwidth=1000.0, cell_size=500.0, percentil=75.0, unidade="sinistros"):
-    """Aplica a Trilha 2. O peso de cada ponto é a coluna UPS (pesos escolhidos na interface)."""
-    if unidade not in UNIDADES:
-        raise ValueError(f"Unidade do quartil desconhecida: {unidade}")
+def aplicar_kernel(df, bandwidth=1000.0, cell_size=500.0, percentil=75.0, variavel="severidade"):
+    """Aplica a Trilha 2 por severidade (UPS, padrão) ou frequência (todos os sinistros com peso 1)."""
+    if variavel not in ("severidade", "frequencia"):
+        raise ValueError(f"Variável desconhecida: {variavel}")
     df_res = df.copy()
-    if "UPS" in df_res:
-        df_res["peso"] = df_res["UPS"].astype(float)
-    else:  # compatibilidade: pesos padrão do Manual
-        df_res["peso"] = df_res["sem_vitima"] * 1 + df_res["com_vitima"] * 4 + df_res["com_obito"] * 28
-        df_res["UPS"] = df_res["peso"]
+    if "UPS" not in df_res:
+        df_res["UPS"] = df_res["sem_vitima"] * 1 + df_res["com_vitima"] * 4 + df_res["com_obito"] * 28
 
     lat = pd.to_numeric(df_res.get("latitude"), errors="coerce")
     lon = pd.to_numeric(df_res.get("longitude"), errors="coerce")
@@ -132,58 +125,47 @@ def aplicar_kernel(df, bandwidth=1000.0, cell_size=500.0, percentil=75.0, unidad
 
     x, y = projetar_mercator(lat, lon)
     df_res["x_proj"], df_res["y_proj"] = x, y
-    peso = df_res["peso"].to_numpy(float)
     attrs = {}
-    if unidade == "segmentos":
-        dens = densidade_kde(x, y, peso, bandwidth, cell_size)
-        dens_validas = dens[validos]
-        limite = float(np.percentile(dens_validas, percentil))
-        # densidade zero (nenhum sinistro no raio do núcleo) nunca é crítica: quando a maioria dos segmentos não
-        # tem sinistros por perto, o limite seria zero e todos virariam críticos
-        critico = (dens >= limite) & (dens > 0) & validos
-        if limite <= 0:
-            avisos.append(f"{percentil:g}% ou mais dos segmentos não têm sinistros num raio de "
-                          f"{3 * bandwidth / 1000:g} km (densidade zero): só os de densidade positiva contam como "
-                          "críticos.")
-        quartis = np.percentile(dens_validas, [25, 50, 75])
-        nivel = np.where(validos, np.searchsorted(quartis, dens, side="left") + 1, np.nan)
-        n_registros = int(validos.sum())
+    if "total_sinistros" in df_res:
+        contagem = pd.to_numeric(df_res["total_sinistros"], errors="coerce")
     else:
-        if "total_sinistros" in df_res:
-            contagem = pd.to_numeric(df_res["total_sinistros"], errors="coerce")
-        else:
-            contagem = df_res[[c for c in COLUNAS_SINISTROS if c in df_res]].apply(pd.to_numeric, errors="coerce").sum(
-                axis=1)
-        contagem = contagem.fillna(0).to_numpy(float)
-        if (np.abs(contagem - np.rint(contagem)) > 1e-9).any():
-            avisos.append("Há contagens de sinistros não inteiras: arredondadas para o quartil sobre os sinistros.")
-        contagem = np.rint(contagem).astype(np.int64)
-        com = validos & (contagem > 0)
-        if not com.any():
-            raise ValueError("A Trilha 2 precisa de pelo menos um segmento com sinistros e coordenadas.")
-        n_registros = int(contagem[com].sum())
-        dens = np.full(len(df_res), np.nan)
-        dens[com] = densidade_kde(x[com], y[com], peso[com], bandwidth, cell_size, n=n_registros)
-        registros = np.repeat(dens[com], contagem[com])          # um valor por sinistro, como no código R
-        limite = float(np.percentile(registros, percentil))
-        nivel = np.full(len(df_res), np.nan)
-        nivel[com] = _niveis(dens[com], registros)
-        if percentil == 75:
-            # código R do Manual: críticos = registros do maior nível (nível 4: densidade acima do P75)
-            critico = com & (nivel == nivel[com].max())
-        else:
-            critico = com & (dens > limite)
-            if not critico.any():
-                critico = com & (dens >= limite)
-        # avaliação do modelo no código R: hotspot_kde (>= P75) x hotspot_pesos (soma da UPS na célula >= P75)
-        soma = soma_pesos_celula(x[com], y[com], peso[com], bandwidth, cell_size)
-        hotspot_kde = dens[com] >= limite
-        hotspot_pesos = soma >= np.percentile(np.repeat(soma, contagem[com]), percentil)
-        attrs["coincidencia"] = float(100 * np.average(hotspot_kde == hotspot_pesos, weights=contagem[com]))
-        sem = validos & (contagem == 0)
-        if sem.any():
-            avisos.append(f"{int(sem.sum())} segmento(s) sem sinistros: no Manual só os sinistros têm densidade, "
-                          "então esses segmentos ficam sem densidade e não são críticos.")
+        contagem = df_res[[c for c in COLUNAS_SINISTROS if c in df_res]].apply(pd.to_numeric, errors="coerce").sum(
+            axis=1)
+    contagem = contagem.fillna(0).to_numpy(float)
+    if (np.abs(contagem - np.rint(contagem)) > 1e-9).any():
+        avisos.append("Há contagens de sinistros não inteiras: arredondadas para o quartil sobre os sinistros.")
+    contagem = np.rint(contagem).astype(np.int64)
+    if variavel == "frequencia":
+        df_res["peso"] = contagem.astype(float)
+    else:
+        df_res["peso"] = df_res["UPS"].astype(float)
+    peso = df_res["peso"].to_numpy(float)
+    com = validos & (contagem > 0)
+    if not com.any():
+        raise ValueError("A Trilha 2 precisa de pelo menos um segmento com sinistros e coordenadas.")
+    n_registros = int(contagem[com].sum())
+    dens = np.full(len(df_res), np.nan)
+    dens[com] = densidade_kde(x[com], y[com], peso[com], bandwidth, cell_size, n=n_registros)
+    registros = np.repeat(dens[com], contagem[com])          # um valor por sinistro, como no código R
+    limite = float(np.percentile(registros, percentil))
+    nivel = np.full(len(df_res), np.nan)
+    nivel[com] = _niveis(dens[com], registros)
+    if percentil == 75:
+        # código R do Manual: críticos = registros do maior nível (nível 4: densidade acima do P75)
+        critico = com & (nivel == nivel[com].max())
+    else:
+        critico = com & (dens > limite)
+        if not critico.any():
+            critico = com & (dens >= limite)
+    # avaliação do modelo no código R: hotspot_kde (>= P75) x hotspot_pesos (soma na célula >= P75)
+    soma = soma_pesos_celula(x[com], y[com], peso[com], bandwidth, cell_size)
+    hotspot_kde = dens[com] >= limite
+    hotspot_pesos = soma >= np.percentile(np.repeat(soma, contagem[com]), percentil)
+    attrs["coincidencia"] = float(100 * np.average(hotspot_kde == hotspot_pesos, weights=contagem[com]))
+    sem = validos & (contagem == 0)
+    if sem.any():
+        avisos.append(f"{int(sem.sum())} segmento(s) sem sinistros: no Manual só os sinistros têm densidade, "
+                      "então esses segmentos ficam sem densidade e não são críticos.")
 
     df_res["densidade"] = dens
     df_res["nivel_densidade"] = nivel
@@ -196,5 +178,5 @@ def aplicar_kernel(df, bandwidth=1000.0, cell_size=500.0, percentil=75.0, unidad
 
     df_res = df_res.sort_values(by="score_kernel", ascending=False, na_position="last").reset_index(drop=True)
     df_res.attrs.update({"avisos": avisos, "limite": limite, "bandwidth": bandwidth, "cell_size": cell_size,
-                         "percentil": percentil, "unidade": unidade, "registros": n_registros, **attrs})
+                         "percentil": percentil, "registros": n_registros, "variavel": variavel, **attrs})
     return df_res
