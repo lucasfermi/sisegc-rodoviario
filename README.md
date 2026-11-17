@@ -6,7 +6,7 @@ O **SISegC Rodoviário** é uma aplicação web (Streamlit) que identifica segme
 dados de sinistros, seguindo o **Manual de Identificação de Segmentos Críticos Rodoviários (2026)**. Corta a
 malha em segmentos, localiza os sinistros e aplica as três trilhas do Manual (Valor Crítico, Densidade de
 Kernel e Empírico de Bayes), com um painel de indicadores, mapas, tabelas, relatório executivo em PDF e
-planilhas para baixar. Versão estável atual: **4.3.4** (ver `CHANGELOG.md`).
+planilhas para baixar. Versão estável atual: **4.3.5** (ver `CHANGELOG.md`).
 
 ## Métodos
 
@@ -110,6 +110,8 @@ mesma BR que contém o km do meio do segmento, só no eixo principal (acessos, c
 e anéis têm quilometragem própria). O VMD do segmento é a soma dos dois sentidos (com a análise
 por sentido, cada sentido usa o seu). O app avisa quando o PNCT marca o trecho como “Não Simulável” e quando
 o ano do VMD difere do ano dos sinistros. Sem VMD, a Trilha 3 e os métodos de taxa da Trilha 1 não rodam.
+Como o VMD é uma estimativa, a caixa “Usar o volume de tráfego (VMD)”, na barra lateral, permite deixá-lo de
+fora: as Trilhas 1 (frequência e severidade) e 2 não dependem dele.
 Com a planilha de 2019 e o SNV 202610A, 15% dos segmentos do país ficam sem VMD: dois terços são rodovias
 não pavimentadas, que o PNCT não modela; o resto são trechos pavimentados depois de 2019, trechos que o
 PNCT não conseguiu simular e trechos criados depois da versão 202001A do SNV.
@@ -191,13 +193,13 @@ Sugestões e correções são bem-vindas por *issues* e *pull requests*. Antes d
 Os dados de citação estão em `CITATION.cff` (o GitHub os mostra em “Cite this repository”).
 
 > OLIVEIRA, Lucas Fermi Pereira de. **SISegC Rodoviário: Sistema de Identificação de Segmentos Críticos
-> Rodoviários**. Versão 4.3.4. Brasília: Universidade de Brasília, 2026. Software.
+> Rodoviários**. Versão 4.3.5. Brasília: Universidade de Brasília, 2026. Software.
 
 ```bibtex
 @software{sisegc_rodoviario,
   author    = {Oliveira, Lucas Fermi Pereira de},
   title     = {{SISegC Rodoviário}: Sistema de Identificação de Segmentos Críticos Rodoviários},
-  version   = {4.3.4},
+  version   = {4.3.5},
   year      = {2026},
   publisher = {Universidade de Brasília}
 }
@@ -227,10 +229,9 @@ Dados embutidos:
 
 ## Versões
 
-O histórico está em `CHANGELOG.md`. Cada versão publicada tem uma *tag* (`v4.1.0`, `v4.1.1`, `v4.1.2`,
-`v4.2.0`, `v4.3.0`, `v4.3.1`, `v4.3.2`, `v4.3.3`, `v4.3.4`) e uma página de *release* no GitHub com as notas da
-versão; a 4.3.4 é a versão estável atual. A série 4.1, revisão do protótipo, segue no ramo `versao-4.1` (versão
-4.1.3).
+O histórico das mudanças está em `CHANGELOG.md`. Cada versão publicada tem uma *tag* (`v4.1.3`, `v4.3.4` e
+`v4.3.5`); a 4.3.5 é a versão estável atual. A série 4.1, revisão do protótipo, segue no ramo `versao-4.1`
+(versão 4.1.3).
 
 ## Licença
 

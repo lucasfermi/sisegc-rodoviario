@@ -92,3 +92,18 @@ def test_percentual_so_mostra_100_quando_e_100():
     assert _pct(2999 / 3000) == "99,9%"
     assert _pct(0.996) == "99,6%"
     assert _pct(0.98) == "98%"
+
+
+def test_parametros_na_primeira_pagina_e_vmd():
+    import pandas as pd
+
+    from utils.relatorio import _parametros
+
+    contexto = {"descricao_fonte": "Segmentação automática: DF, 2024, sinistros da PRF.",
+                "segmentacao": {"comprimento": 1.0, "por_sentido": False, "residenciais": False, "vmd": False}}
+    pesos = {"sem_vitima": 1, "com_vitima": 4, "com_obito": 28}
+    capa = _parametros({}, pesos, contexto, com_dados=False)
+    assert isinstance(capa, pd.DataFrame) and "Dados" not in capa["Parâmetro"].tolist()
+    vmd = capa.set_index("Parâmetro").loc["Volume de tráfego (VMD)", "Valor"]
+    assert vmd.startswith("não usado")
+    assert "Dados" in _parametros({}, pesos, contexto)["Parâmetro"].tolist()

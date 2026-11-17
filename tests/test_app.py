@@ -126,3 +126,27 @@ def test_trilha1_lista_a_frequencia_primeiro_com_a_severidade_como_padrao():
     metodo = next(s for s in at.selectbox if s.label == "Método" and "severidade" in str(s.value))
     assert metodo.options[0].startswith("Valor crítico de frequência")
     assert at.session_state["resultados"]["vc"]["Indice"].notna().all()
+
+
+def test_vmd_pode_ser_desmarcado_sem_refazer_a_segmentacao():
+    """Sem o VMD, as Trilhas 1 e 2 rodam e a Trilha 3 avisa; a segmentação é a mesma (só o VMD sai)."""
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=300)
+    at.run()
+    at.multiselect(key="ufs_0").set_value(["DF"]).run()
+    com_vmd = at.session_state["dados"]
+    assert com_vmd["volume_trafego"].notna().any() and "bayes" in at.session_state["resultados"]
+    at.checkbox(key="usavmd_0").uncheck().run()
+    assert not at.exception
+    dados = at.session_state["dados"]
+    assert dados["volume_trafego"].isna().all() and len(dados) == len(com_vmd)
+    assert {"vc", "kde"} <= set(at.session_state["resultados"]) and "bayes" not in at.session_state["resultados"]
+    assert any("desmarcado" in texto for _, texto in at.session_state["msgs_segmentacao"])
+    assert any("Usar o volume de tráfego" in w.value for w in at.warning)
+
+
+def test_nivel_de_confianca_da_trilha3_digitavel():
+    at = _app_com_dados("exemplo_dados.csv")
+    assert at.session_state["resultados"]["bayes"].attrs["z"] == 1.96          # 97,5%, o padrão do Manual
+    at.number_input(key="nivel_eb").set_value(95.0).run()
+    assert not at.exception
+    assert at.session_state["resultados"]["bayes"].attrs["z"] == 1.645

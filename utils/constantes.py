@@ -9,7 +9,7 @@ Trilha 3 = Empírico de Bayes. Para mudar a numeração exibida, altere só o di
 # Nome e versão do sistema: os mesmos no app, no relatório PDF e na documentação
 NOME_SISTEMA = "Sistema de Identificação de Segmentos Críticos Rodoviários"
 SIGLA_SISTEMA = "SISegC Rodoviário"
-VERSAO = "4.3.4"
+VERSAO = "4.3.5"
 
 # Pesos da Unidade Padrão de Severidade (Manual, equação 2.1)
 PESOS_UPS_PADRAO = {"sem_vitima": 1, "com_vitima": 4, "com_obito": 28}

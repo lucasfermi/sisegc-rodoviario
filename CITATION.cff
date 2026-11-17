@@ -12,8 +12,8 @@ authors:
     given-names: "Lucas Fermi Pereira de"
     affiliation: "Universidade de Brasília, Programa de Pós-Graduação em Transportes (PPGT/UnB)"
 license: MIT
-version: "4.3.4"
-date-released: "2026-11-15"
+version: "4.3.5"
+date-released: "2026-11-17"
 keywords:
   - segurança viária
   - segmentos críticos

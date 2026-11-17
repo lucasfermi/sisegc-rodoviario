@@ -566,19 +566,26 @@ def _texto_metodologia(resultados, pesos):
     return partes
 
 
-def _parametros(resultados, pesos, contexto):
+def _parametros(resultados, pesos, contexto, com_dados=True):
+    """Tabela dos parâmetros adotados. Na primeira página, a fonte dos dados já aparece logo abaixo do título
+    (``com_dados=False``)."""
     from models.trilha1_valor_critico import METODOS as METODOS_VC
     from models.trilha3_bayes import CRITERIOS, METODOS
     from utils.constantes import VARIAVEIS_ANALISE
 
     linhas = []
-    if contexto.get("descricao_fonte"):
+    if com_dados and contexto.get("descricao_fonte"):
         linhas.append(("Dados", contexto["descricao_fonte"].rstrip(".")))
     seg = contexto.get("segmentacao")
     if seg:
         linhas.append(("Segmentação", f"segmentos de cerca de {_br(seg['comprimento'], 1)} km"
                        + ("; por sentido da via" if seg.get("por_sentido") else "")
                        + ("; com ruas residenciais" if seg.get("residenciais") else "")))
+        if seg.get("vmd") is False:
+            linhas.append(("Volume de tráfego (VMD)", "não usado, por opção do usuário: a Trilha 3 e os métodos de "
+                           "taxa da Trilha 1 não rodam"))
+        elif seg.get("vmd"):
+            linhas.append(("Volume de tráfego (VMD)", "usado (modelagem do PNCT/DNIT)"))
     linhas.append(("Pesos da UPS", f"{pesos.get('sem_vitima', 1)} (sem vítima), {pesos.get('com_vitima', 4)} "
                    f"(com vítima), {pesos.get('com_obito', 28)} (com óbito)"))
     if "vc" in resultados:
@@ -615,6 +622,9 @@ def _limitacoes(df_proc, contexto):
              "As Trilhas 1 e 2 operam diretamente sobre as contagens e severidades observadas; a Trilha 3 corrige o "
              "efeito de regressão à média mediante função de desempenho de segurança dependente do VMD."]
     vmd = resumo.get("vmd")
+    if resumo.get("vmd_desativado"):
+        itens.append("O volume de tráfego (VMD) não foi usado nesta análise, por opção do usuário: a Trilha 3 e os "
+                     "métodos de taxa da Trilha 1, que dependem dele, não foram executados.")
     if vmd:
         ano_vmd = vmd.get("ano") or "ano não informado"
         itens.append(f"O volume médio diário (VMD) provém da modelagem nacional do PNCT/DNIT ({ano_vmd}), "
@@ -756,6 +766,9 @@ def gerar_pdf_completo(df_proc, resultados, logo_path=None, contexto: dict | Non
     fontes = _fontes(df_proc)
     if fontes:
         pdf.texto_corpo(fontes, tamanho=9)
+    pdf.subtitulo("Parâmetros adotados")
+    pdf.adicionar_tabela(_parametros(resultados, pesos, contexto, com_dados=False), [50, 140], tamanho=8.5,
+                         alinhar=["L", "L"])
 
     # 2. Mapa
     fig, com_fundo = figura_mapa(df_proc, conv)
@@ -853,11 +866,11 @@ def gerar_pdf_completo(df_proc, resultados, logo_path=None, contexto: dict | Non
     pdf.itens(_limitacoes(df_proc, contexto))
     n += 1
 
-    # 8. Metodologia e parâmetros
-    pdf.capitulo_titulo(f"{n}. Metodologia e parâmetros")
+    # 8. Metodologia (os parâmetros adotados estão na primeira página, no item 1)
+    pdf.capitulo_titulo(f"{n}. Metodologia")
     for paragrafo in _texto_metodologia(resultados, pesos):
         pdf.texto_corpo(paragrafo, tamanho=9.5)
-    pdf.adicionar_tabela(_parametros(resultados, pesos, contexto), [50, 140], tamanho=8.5, alinhar=["L", "L"])
+    pdf.texto_corpo("Os parâmetros adotados nesta análise estão no item 1.", tamanho=9.5)
 
     # Anexo
     if len(conv):

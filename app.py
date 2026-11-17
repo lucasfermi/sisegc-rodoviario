@@ -50,7 +50,6 @@ from utils import dados_publicos as dp  # noqa: E402
 from utils import painel  # noqa: E402
 from utils.constantes import (  # noqa: E402
     COLUNAS_SINISTROS,
-    NIVEIS_CONFIANCA_K,
     ORDEM_TRILHAS,
     PESOS_UPS_PADRAO,
     VARIAVEIS_ANALISE,
@@ -218,8 +217,9 @@ def contexto_relatorio(opcoes: dict) -> dict:
     resumo = dados.attrs.get("resumo", {}) if dados is not None else {}
     segmentacao = None
     if fonte == "auto" and st.session_state.auto_chave:
-        _, _, comprimento, por_sentido, residenciais, _ = st.session_state.auto_chave
-        segmentacao = {"comprimento": comprimento, "por_sentido": por_sentido, "residenciais": residenciais}
+        _, _, comprimento, por_sentido, residenciais, _, usar_vmd = st.session_state.auto_chave
+        segmentacao = {"comprimento": comprimento, "por_sentido": por_sentido, "residenciais": residenciais,
+                       "vmd": usar_vmd}
     return {"descricao_fonte": st.session_state.descricao_fonte, "mensagens": mensagens,
             "segmentacao": segmentacao, "excluir_zeros": opcoes["vc"][3], "erros": dict(st.session_state.erros),
             "prf": fonte == "auto" and bool(resumo.get("com_km"))}
@@ -260,6 +260,16 @@ def snv_embutido(ufs: tuple) -> pd.DataFrame:
 @st.cache_resource(show_spinner=False)
 def vmd_embutido() -> pd.DataFrame:
     return dp.ler_vmd()
+
+
+def sem_vmd(dados: pd.DataFrame) -> pd.DataFrame:
+    """Os segmentos sem o volume de tráfego, quando o usuário desmarca o VMD na barra lateral: as Trilhas 1
+    (frequência e severidade) e 2 seguem iguais; a Trilha 3 e os métodos de taxa da Trilha 1 deixam de rodar."""
+    d = dados.drop(columns=[c for c in ("vmd_origem", "vmd_classificacao") if c in dados])
+    d["volume_trafego"] = np.nan
+    resumo = {**dados.attrs.get("resumo", {}), "vmd": None, "vmd_desativado": True}
+    d.attrs = {**dados.attrs, "resumo": resumo}
+    return d
 
 
 def segmentacao_automatica(ufs: tuple, anos: tuple, comprimento: float, por_sentido: bool, residenciais: bool,
@@ -348,6 +358,9 @@ def dica_erro(mensagem: str, dados: pd.DataFrame) -> str:
     if ("extensão" in mensagem or "VMD" in mensagem) and sem_extensao:
         return (" A planilha não traz a extensão dos segmentos (parece ter um sinistro por linha): envie-a em "
                 "“Usar meus dados de sinistros”, na segmentação automática.")
+    if "VMD" in mensagem and dados.attrs.get("resumo", {}).get("vmd_desativado"):
+        return (" O VMD está desmarcado na barra lateral: marque “Usar o volume de tráfego (VMD)” para rodar esta "
+                "análise.")
     if "VMD" in mensagem and "fonte" in dados and dados["fonte"].eq("OpenStreetMap").all():
         return (" As vias do OpenStreetMap não têm VMD: em áreas urbanas, use a Trilha 1 (número de sinistros ou "
                 "severidade) e a Trilha 2.")
@@ -382,7 +395,11 @@ def mensagens_segmentacao(resumo: dict, residenciais: bool | None = None) -> lis
         msgs.append(("success", f"OpenStreetMap: {osm['segmentos']:,} segmentos em {osm['km']:,} km de vias fora do "
                                 f"SNV; {osm['sinistros']:,} sinistros nessas vias.".replace(",", ".")))
     vmd = resumo.get("vmd")
-    if vmd is None:
+    if resumo.get("vmd_desativado"):
+        msgs.append(("info", "Volume de tráfego (VMD) desmarcado na barra lateral: as Trilhas 1 (frequência e "
+                             "severidade) e 2 não dependem dele; a Trilha 3 e os métodos de taxa da Trilha 1 não "
+                             "rodam."))
+    elif vmd is None:
         msgs.append(("info", "Sem volume de tráfego (VMD), a Trilha 3 e os métodos de taxa da Trilha 1 não rodam."))
     elif not resumo["segmentos"]:
         msgs.append(("info", "As vias do OpenStreetMap não têm VMD: a Trilha 3 e os métodos de taxa da Trilha 1 não "
@@ -1025,18 +1042,26 @@ with st.sidebar:
             com_km = not proprios or bool(sinistros.attrs.get("com_km"))
             por_sentido = st.checkbox("Separar por sentido da via", disabled=not com_km, key=f"sent_{chave_up}",
                                       help="Só para dados com o sentido da via, como os da PRF.") and com_km
+            usar_vmd = st.checkbox("Usar o volume de tráfego (VMD)", value=True, key=f"usavmd_{chave_up}",
+                                   help="O VMD vem da modelagem do PNCT/DNIT, uma estimativa (a embutida é de 2019). "
+                                        "Desmarque se não confiar nele: as Trilhas 1 (frequência e severidade) e 2 "
+                                        "não usam o VMD; sem ele, a Trilha 3 e os métodos de taxa da Trilha 1 não "
+                                        "rodam.")
             if ufs and (anos or sem_coluna_ano):
                 chave_sinistros = _chave(arqs_sin or []) or ((("exemplo", exemplo["nome"]),) if exemplo else ())
                 chave_arquivos = (chave_sinistros, _chave(arqs_snv or []),
                                   _chave([arq_vmd]) if arq_vmd is not None else ())
                 chave_auto = (tuple(ufs), tuple(sorted(anos)), float(comprimento), bool(por_sentido),
                               bool(residenciais) and proprios, chave_arquivos)
-                if chave_auto != st.session_state.auto_chave:
+                chave_estado = (*chave_auto, bool(usar_vmd))      # trocar só o VMD não refaz a segmentação
+                if chave_estado != st.session_state.auto_chave:
                     try:
                         with st.status("Segmentando a malha e localizando os sinistros...") as andamento:
                             dados = segmentacao_automatica(*chave_auto, _sinistros=sinistros, _snv=snv_enviado,
                                                            _vmd=vmd_enviado, _andamento=andamento).copy()
                             andamento.update(label="Segmentação pronta.", state="complete", expanded=False)
+                        if not usar_vmd:
+                            dados = sem_vmd(dados)
                         resumo = dados.attrs["resumo"]
                         limpar_resultados()
                         periodo_txt = (
@@ -1054,7 +1079,7 @@ with st.sidebar:
                     except ValueError as e:
                         limpar_resultados()
                         st.session_state.update(dados=None, fonte="auto", msgs_segmentacao=[("error", str(e))])
-                    st.session_state.auto_chave = chave_auto
+                    st.session_state.auto_chave = chave_estado
             else:
                 if st.session_state.fonte == "auto":
                     limpar_resultados()
@@ -1089,7 +1114,6 @@ with st.expander("⚙️ Configurações das análises"):
         peso_sv = c1.slider("Peso Sem Vítima", 1, 10, PESOS_UPS_PADRAO["sem_vitima"])
         peso_cv = c2.slider("Peso Com Vítima", 1, 50, PESOS_UPS_PADRAO["com_vitima"])
         peso_co = c3.slider("Peso Com Óbito", 1, 100, PESOS_UPS_PADRAO["com_obito"])
-    niveis = list(NIVEIS_CONFIANCA_K)
     with aba_config["vc"]:
         # frequência primeiro, como no Manual; a severidade é o padrão quando há a gravidade dos sinistros
         metodo_vc = st.selectbox("Método", list(METODOS_VC), index=list(METODOS_VC).index("severidade"),
@@ -1118,9 +1142,14 @@ with st.expander("⚙️ Configurações das análises"):
         metodo_eb = st.selectbox("Método", list(METODOS_EB), format_func=METODOS_EB.get)
         criterio_eb = st.radio("Critério de criticidade", list(CRITERIOS), format_func=CRITERIOS.get,
                                index=list(CRITERIOS).index(CRITERIO_PADRAO[metodo_eb]))
-        nivel_eb = st.selectbox("Nível de confiança do critério z (%)", niveis, index=niveis.index(97.5),
-                                format_func=lambda n: f"{n:g} (z = {NIVEIS_CONFIANCA_K[n]:.3f})",
-                                disabled=criterio_eb != "z")
+        nivel_eb = st.number_input(
+            "Nível de confiança do critério z (%)", min_value=50.0, max_value=99.9, value=97.5, step=0.5,
+            format="%.1f", key="nivel_eb", disabled=criterio_eb != "z",
+            help="O Manual adota z = 1,96, que corresponde a 97,5% (unicaudal), o padrão. Outros níveis usam a "
+                 "Normal padrão (ex.: 95% → z = 1,645; 99% → z = 2,326).",
+        )
+        if criterio_eb == "z":
+            st.caption(f"Valor de z correspondente: {_br(k_por_nivel(nivel_eb), 3)}")
     with aba_config["kde"]:
         variavel_kde = st.selectbox(
             "Variável de análise", list(VARIAVEIS_ANALISE), format_func=VARIAVEIS_ANALISE.get,

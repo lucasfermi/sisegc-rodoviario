@@ -1,5 +1,17 @@
 # Histórico de versões
 
+## 4.3.5 — novembro de 2026
+
+- **Volume de tráfego opcional:** nova caixa “Usar o volume de tráfego (VMD)” na barra lateral, marcada por
+  padrão. Como o VMD é uma estimativa, pode ser deixado de fora: as Trilhas 1 (frequência e severidade) e 2 seguem
+  iguais, e a Trilha 3 e os métodos de taxa da Trilha 1, que dependem dele, deixam de rodar, com aviso. Trocar só
+  essa opção não refaz a segmentação.
+- **Trilha 3:** nível de confiança do critério z em campo numérico (50% a 99,9%), com 97,5% (z = 1,96, Manual)
+  como padrão e o valor de z exibido logo abaixo.
+- **Relatório PDF:** a tabela dos parâmetros adotados passa para a primeira página, logo abaixo dos números
+  principais; o capítulo de metodologia mantém a descrição dos métodos. A tabela informa também se o VMD foi
+  usado.
+
 ## 4.3.4 — novembro de 2026
 
 Revisão metodológica e de interface, com alinhamento ao Manual de Identificação de Segmentos Críticos Rodoviários (edição 2026).
